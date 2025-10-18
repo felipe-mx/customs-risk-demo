@@ -1,0 +1,25 @@
+{
+  "model_name": "illicit_classifier_poc_v1",
+  "features": {
+    "categorical": [
+      "broker",
+      "hts",
+      "country_origin"
+    ],
+    "numerical": [
+      "unit_price",
+      "customs_value",
+      "commercial_value",
+      "quantity",
+      "price_gap_ratio",
+      "unit_price_dev_hs_origin",
+      "qty_is_one",
+      "qty_le_2",
+      "log_unit_price",
+      "log_customs_value",
+      "log_commercial_value",
+      "log_quantity"
+    ]
+  },
+  "description": "Binary classifier to flag illicit customs shipments"
+}
