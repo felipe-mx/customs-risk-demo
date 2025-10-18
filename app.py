@@ -20,6 +20,10 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.inspection import permutation_importance
 import joblib
 
+from pathlib import Path
+DEFAULT_MODEL_PATH = Path("artifact/model_pipeline.joblib")
+
+
 st.set_page_config(page_title="Customs Risk Prototype", layout="wide")
 
 # ------------------------
@@ -112,16 +116,24 @@ def train_quick_model(df_all: pd.DataFrame):
 
 @st.cache_data(show_spinner=False)
 def load_table(upload) -> pd.DataFrame:
+    import pandas as pd
     if upload is None:
         return pd.DataFrame()
     name = upload.name.lower()
+
     if name.endswith(".csv"):
         return pd.read_csv(upload)
-    elif name.endswith(".xlsx") or name.endswith(".xls"):
-        return pd.read_excel(upload)
-    else:
-        st.error("Please upload .csv or .xlsx")
-        return pd.DataFrame()
+
+    if name.endswith(".xlsx"):
+        # needs openpyxl in requirements.txt
+        return pd.read_excel(upload, engine="openpyxl")
+
+    if name.endswith(".xls"):
+        # only if you added xlrd==1.2.0 to requirements
+        return pd.read_excel(upload, engine="xlrd")
+
+    st.error("Unsupported file type. Please upload .csv, .xlsx, or .xls")
+    return pd.DataFrame()
 
 @st.cache_resource(show_spinner=False)
 def load_model_bytes(model_bytes):
@@ -161,22 +173,30 @@ if missing:
     st.stop()
 
 # ------------------------
-# Load or train model
+# Load or train model (prefers a real .joblib if available)
 # ------------------------
 pipe = None
 metrics = {}
+
 if model_file is not None:
+    # User uploaded a real artifact
     pipe = load_model_bytes(model_file.read())
-    st.success("Loaded model artifact.")
+    st.success("Loaded model from uploaded .joblib.")
+elif DEFAULT_MODEL_PATH.exists():
+    # Use repo’s default artifact if present
+    import joblib
+    pipe = joblib.load(DEFAULT_MODEL_PATH)
+    st.success(f"Loaded default model: {DEFAULT_MODEL_PATH}")
 elif train_if_missing:
+    # Fall back to quick training (requires illicit_label in the data)
     if "illicit_label" not in df_raw.columns:
-        st.error("To train a quick model, your file must include 'illicit_label'. Otherwise upload a model artifact.")
+        st.error("Quick train requires 'illicit_label'. Upload a model or provide labeled data.")
         st.stop()
     with st.spinner("Training quick model..."):
         pipe, metrics = train_quick_model(df_raw)
     st.success("Quick model trained.")
 else:
-    st.error("Please upload a model file or enable quick training.")
+    st.error("Please upload a model (.joblib) or enable quick training.")
     st.stop()
 
 if metrics:
@@ -184,22 +204,28 @@ if metrics:
     st.json(metrics)
 
 # ------------------------
-# Scoring
+# Scoring with real model (or quick model)
 # ------------------------
 with st.spinner("Scoring..."):
-    # keep a copy for display
     df_sc = df_raw.copy()
     X = build_features(df_sc)
-    proba = pipe.predict_proba(X)[:,1]
+    proba = pipe.predict_proba(X)[:, 1]
     df_sc["score_illicit"] = proba
     df_sc["rank"] = (-df_sc["score_illicit"]).rank(method="first").astype(int)
     df_sc = df_sc.sort_values("score_illicit", ascending=False).reset_index(drop=True)
 
 st.subheader(f"Top {top_k} incidents (by score)")
-cols_show = ["broker","hts","country_origin","date","unit_price","customs_value","commercial_value","quantity","score_illicit"]
+cols_show = ["broker","hts","country_origin","date","unit_price","customs_value","commercial_value","quantity","score_illicit","rank"]
 if "illicit_label" in df_sc.columns:
     cols_show = ["illicit_label"] + cols_show
 st.dataframe(df_sc[cols_show].head(top_k), use_container_width=True)
+
+# Download scored table
+st.download_button(
+    "⬇️ Download full scored table (CSV)",
+    data=df_sc.to_csv(index=False).encode("utf-8"),
+    file_name="scored_incidents.csv",
+    mime="text/csv"
 
 # ------------------------
 # Global importance (Permutation Importance)
