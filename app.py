@@ -208,24 +208,43 @@ if metrics:
 # ------------------------
 with st.spinner("Scoring..."):
     df_sc = df_raw.copy()
+
+    # Build features exactly like training
     X = build_features(df_sc)
+
+    # Predict illicit risk probability
     proba = pipe.predict_proba(X)[:, 1]
     df_sc["score_illicit"] = proba
+
+    # Assign rank (1 = highest risk)
     df_sc["rank"] = (-df_sc["score_illicit"]).rank(method="first").astype(int)
     df_sc = df_sc.sort_values("score_illicit", ascending=False).reset_index(drop=True)
 
 st.subheader(f"Top {top_k} incidents (by score)")
-cols_show = ["broker","hts","country_origin","date","unit_price","customs_value","commercial_value","quantity","score_illicit","rank"]
+
+# Columns to show
+cols_show = [
+    "broker","hts","country_origin","date",
+    "unit_price","customs_value","commercial_value","quantity",
+    "score_illicit","rank"
+]
 if "illicit_label" in df_sc.columns:
     cols_show = ["illicit_label"] + cols_show
-st.dataframe(df_sc[cols_show].head(top_k), use_container_width=True)
 
-# Download scored table
+# Round for display only
+df_view = df_sc.copy()
+df_view["score_illicit"] = df_view["score_illicit"].round(4)
+
+# Show in UI
+st.dataframe(df_view[cols_show].head(top_k), use_container_width=True)
+
+# Download full scored table (CSV)
 st.download_button(
-    "⬇️ Download full scored table (CSV)",
+    label="⬇️ Download full scored table (CSV)",
     data=df_sc.to_csv(index=False).encode("utf-8"),
     file_name="scored_incidents.csv",
     mime="text/csv"
+)
 
 # ------------------------
 # Global importance (Permutation Importance)
